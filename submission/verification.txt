@@ -1,0 +1,13 @@
+test_algorithms_against_independent_oracle (__main__.SubmissionChecks.test_algorithms_against_independent_oracle) ... ok
+test_already_solved (__main__.SubmissionChecks.test_already_solved) ... ok
+test_exhaustive_heuristic_properties (__main__.SubmissionChecks.test_exhaustive_heuristic_properties) ... ok
+test_large_map_analytic_fallback (__main__.SubmissionChecks.test_large_map_analytic_fallback) ... ok
+test_limits_and_validation (__main__.SubmissionChecks.test_limits_and_validation) ... ok
+test_reopen_with_inconsistent_admissible_heuristic (__main__.SubmissionChecks.test_reopen_with_inconsistent_admissible_heuristic) ... ok
+test_sma_memory_and_regeneration (__main__.SubmissionChecks.test_sma_memory_and_regeneration) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 2.272s
+
+OK
+Exhaustive properties: 3490 states, 8921 directed edges.

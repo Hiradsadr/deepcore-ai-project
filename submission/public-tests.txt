@@ -1,0 +1,19 @@
+test_root_launcher_accepts_no_arguments (test_launcher.TestStudentLauncher.test_root_launcher_accepts_no_arguments) ... ok
+test_root_launcher_keeps_cli_algorithm_options (test_launcher.TestStudentLauncher.test_root_launcher_keeps_cli_algorithm_options) ... ok
+test_01_bfs_solves_level1 (test_search.TestDeepCoreSearch.test_01_bfs_solves_level1) ... ok
+test_02_naive_heuristic_baseline (test_search.TestDeepCoreSearch.test_02_naive_heuristic_baseline) ... ok
+test_03_ucs_beats_bfs_cost_on_level1 (test_search.TestDeepCoreSearch.test_03_ucs_beats_bfs_cost_on_level1)
+On Level 1, BFS wades through the sludge lane: 22 steps, Cost = 74. ... ok
+test_04_uninformed_ids_and_bidirectional (test_search.TestDeepCoreSearch.test_04_uninformed_ids_and_bidirectional)
+Both algorithms must return a valid 22-step solution. ... ok
+test_05_heuristic_dominance_and_admissibility (test_search.TestDeepCoreSearch.test_05_heuristic_dominance_and_admissibility)
+Checks the initial state of Level 2 against the UCS optimal cost. ... ok
+test_06_astar_optimality_and_efficiency (test_search.TestDeepCoreSearch.test_06_astar_optimality_and_efficiency)
+All variants must produce the same optimal cost, and H2 must expand ... ok
+test_07_longer_maps_complete_for_deep_searches (test_search.TestDeepCoreSearch.test_07_longer_maps_complete_for_deep_searches)
+Deep-search entry points must not report artificial budget exhaustion and must have valid answers. ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 140.264s
+
+OK

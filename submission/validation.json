@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-28",
+  "implementation_commit": "097ab4269ebe083fa8cf539106b2e40d64b4cb65",
+  "baseline_commit": "b1bab27fec0393a53a04257a2d4f893016134dec",
+  "protected_original_files_unchanged": 24,
+  "public_tests": {
+    "passed": 9,
+    "failed": 0,
+    "log": "public-tests.txt"
+  },
+  "additional_tests": {
+    "passed": 7,
+    "failed": 0,
+    "log": "verification.txt",
+    "small_maps": 25,
+    "exhaustive_states": 3490,
+    "exhaustive_directed_edges": 8921
+  },
+  "benchmark": {
+    "main_runs": 70,
+    "bounded_sma_runs": 3,
+    "all_paths_replayed": true,
+    "all_astar_idastar_costs_equal_ucs": true
+  },
+  "builtin_heuristic_audit": {
+    "optimal_suffix_states": 207,
+    "sampled_directed_edges": 4095
+  },
+  "gui": {
+    "renderer": "SDL dummy/offscreen",
+    "sprite_assets_loaded": 9,
+    "level1_astar_cost": 68,
+    "event_loop_start_stop": true
+  },
+  "launcher": {
+    "command": "python main.py --algo astar --map level5 --heuristic h2",
+    "solved": true,
+    "steps": 54,
+    "cost": 174
+  },
+  "source_sha256": {
+    "src/deepcore/solver.py": "008448f80f0476f64bdbfa67069a73e48ea9224b55ee2726e340d96a305c6c94",
+    "src/deepcore/heuristics.py": "485589488a3145a20f92f48a518e62981a07af32539f3cbee666d466f7e8e887"
+  }
+}
