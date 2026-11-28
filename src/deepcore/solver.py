@@ -8,7 +8,7 @@ Student implementation file for DeepCore search algorithms.
   function signatures or the environment/state modules.
 """
 
-from collections import deque
+from collections import OrderedDict, deque
 from itertools import count
 import heapq
 import math
@@ -221,14 +221,20 @@ def iterative_deepening_search(
 ) -> Optional[SearchMetrics]:
     """Depth-limited DFS passes with path cycles and depth dominance checks.
 
-    The per-pass best-depth table is reset at every iteration. It trades the
-    textbook tree version's linear memory for practical graph-search pruning.
+    Each pass resets its visitation table. Shorter prefix lengths discovered
+    in earlier passes remain valid dominance bounds: a longer route to the
+    same immutable state cannot improve a minimum-action solution. Successors
+    are cached across passes. This graph variant deliberately uses O(V+E)
+    storage rather than claiming the textbook tree version's linear memory.
     Explicit frames avoid Python's recursion-depth limit.
     """
     _check_budget(max_depth, "max_depth")
     _check_budget(max_expansions, "max_expansions")
     metrics = SearchMetrics(algorithm_name="IDS")
     start = env.get_initial_state()
+    successor_cache = {}
+    cache_states = {start}
+    known_depth = {start: 0}
     limit = 0
     while max_depth is None or limit <= max_depth:
         parent = {start: (None, None)}
@@ -238,7 +244,7 @@ def iterative_deepening_search(
         cutoff = False
         while frames:
             state, depth, cost, children = frames[-1]
-            _record_memory(metrics, len(frames), len(best_depth))
+            _record_memory(metrics, len(frames), len(cache_states))
             if children is None:
                 if env.is_goal(state):
                     return _solved(metrics, parent, state, cost)
@@ -250,7 +256,10 @@ def iterative_deepening_search(
                 if _budget_reached(metrics, max_expansions):
                     return metrics
                 _record_expansion(metrics, state)
-                successors = env.get_successors(state)
+                if state not in successor_cache:
+                    successor_cache[state] = env.get_successors(state)
+                    cache_states.update(child for _, child, _ in successor_cache[state])
+                successors = successor_cache[state]
                 metrics.nodes_generated += len(successors)
                 frames[-1][3] = iter(successors)
             try:
@@ -259,11 +268,16 @@ def iterative_deepening_search(
                 frames.pop()
                 del parent[state]
                 continue
-            if child in parent or best_depth.get(child, math.inf) <= depth + 1:
+            if (child in parent or known_depth.get(child, math.inf) < depth + 1
+                    or best_depth.get(child, math.inf) <= depth + 1):
                 continue
+            known_depth[child] = depth + 1
             best_depth[child] = depth + 1
             parent[child] = (state, action.value)
             frames.append([child, depth + 1, cost + step_cost, None])
+            # The cache retains graph states between passes, so include them
+            # rather than reporting the textbook tree-IDS memory bound.
+            _record_memory(metrics, len(frames), len(cache_states))
         if not cutoff:
             return _failed(metrics)
         limit += 1
@@ -271,7 +285,7 @@ def iterative_deepening_search(
 
 
 # =============================================================================
-# 3. Bidirectional Search — [STUDENT TODO]
+# 3. Bidirectional Search
 # =============================================================================
 def bidirectional_search(env: DeepCoreEnv) -> Optional[SearchMetrics]:
     """Layered two-ended BFS, with a forward certificate for arbitrary goals.
@@ -355,7 +369,7 @@ def bidirectional_search(env: DeepCoreEnv) -> Optional[SearchMetrics]:
 
 
 # =============================================================================
-# 4. Uniform Cost Search (UCS) — [STUDENT TODO]
+# 4. Uniform Cost Search (UCS)
 # =============================================================================
 def uniform_cost_search(env: DeepCoreEnv) -> Optional[SearchMetrics]:
     """Dijkstra graph search, with the goal test on priority-queue removal."""
@@ -363,7 +377,7 @@ def uniform_cost_search(env: DeepCoreEnv) -> Optional[SearchMetrics]:
 
 
 # =============================================================================
-# 5. Greedy Best-First Search (GBFS) — [STUDENT TODO]
+# 5. Greedy Best-First Search (GBFS)
 # =============================================================================
 def greedy_best_first_search(
     env: DeepCoreEnv, heuristic: Callable[[DeepCoreState, DeepCoreEnv], float]
@@ -373,7 +387,7 @@ def greedy_best_first_search(
 
 
 # =============================================================================
-# 6. A* Search — [STUDENT TODO]
+# 6. A* Search
 # =============================================================================
 def a_star_search(
     env: DeepCoreEnv, heuristic: Callable[[DeepCoreState, DeepCoreEnv], float]
@@ -383,7 +397,7 @@ def a_star_search(
 
 
 # =============================================================================
-# BONUS 1: Weighted A* Search — [STUDENT BONUS TODO]
+# BONUS 1: Weighted A* Search
 # =============================================================================
 def weighted_a_star_search(
     env: DeepCoreEnv,
@@ -397,24 +411,242 @@ def weighted_a_star_search(
 
 
 # =============================================================================
-# BONUS 2: Iterative Deepening A* (IDA*) — [STUDENT BONUS TODO]
+# BONUS 2: Iterative Deepening A* (IDA*)
 # =============================================================================
 def ida_star_search(
     env: DeepCoreEnv,
     heuristic: Callable[[DeepCoreState, DeepCoreEnv], float],
     max_expansions: Optional[int] = None,
 ) -> Optional[SearchMetrics]:
-    """TODO (Bonus): Implement Iterative Deepening A* (IDA*) using f-cost threshold contours."""
-    raise NotImplementedError
+    """Iterative f contours with explicit DFS frames and a bounded LRU table.
+
+    The table stores at most max(128, 8*ceil(threshold)) best-g records, is reset
+    each contour, and can evict entries safely (only pruning efficiency changes).
+    Thus search storage grows with the contour cost, not the explored graph.
+    """
+    _check_budget(max_expansions, "max_expansions")
+    metrics = SearchMetrics(algorithm_name="IDA*")
+    start = env.get_initial_state()
+    threshold = float(heuristic(start, env))
+    if math.isnan(threshold) or threshold < 0:
+        raise ValueError("heuristic values must be non-negative and not NaN")
+    if env.is_goal(start):
+        return _solved(metrics, {start: (None, None)}, start, 0)
+    if math.isinf(threshold):
+        return _failed(metrics)
+    while True:
+        next_threshold = math.inf
+        capacity = max(128, 8 * math.ceil(threshold))
+        best_g = OrderedDict([(start, 0)])
+        parent = {start: (None, None)}
+        frames = [[start, 0, None]]
+        while frames:
+            state, g, children = frames[-1]
+            _record_memory(metrics, len(frames), len(parent) + len(best_g))
+            if children is None:
+                if env.is_goal(state):
+                    return _solved(metrics, parent, state, g)
+                if _budget_reached(metrics, max_expansions):
+                    return metrics
+                _record_expansion(metrics, state)
+                candidates = []
+                for order, (action, child, cost) in enumerate(env.get_successors(state)):
+                    metrics.nodes_generated += 1
+                    if child in parent:
+                        continue
+                    h = float(heuristic(child, env))
+                    if math.isnan(h) or h < 0:
+                        raise ValueError("heuristic values must be non-negative and not NaN")
+                    f = g + cost + h
+                    if f > threshold:
+                        next_threshold = min(next_threshold, f)
+                    elif not math.isinf(f):
+                        candidates.append((f, order, action.value, g + cost))
+                candidates.sort(key=lambda item: (item[0], item[1]))
+                frames[-1][2] = iter(candidates)
+            try:
+                _, _, action, new_g = next(frames[-1][2])
+            except StopIteration:
+                frames.pop()
+                del parent[state]
+                continue
+            # Frames retain action descriptors, not sibling states; generate
+            # just the selected successor to keep DFS storage proportional to
+            # the path plus the bounded transposition table.
+            child, _ = env.transition(state, action)
+            metrics.nodes_generated += 1
+            if child in parent or best_g.get(child, math.inf) <= new_g:
+                continue
+            best_g[child] = new_g
+            best_g.move_to_end(child)
+            if len(best_g) > capacity:
+                best_g.popitem(last=False)
+            parent[child] = (state, action)
+            frames.append([child, new_g, None])
+        if math.isinf(next_threshold):
+            return _failed(metrics)
+        threshold = next_threshold
 
 
 # =============================================================================
-# BONUS 3: Simplified Memory-Bounded A* (SMA*) — [STUDENT BONUS TODO]
+# BONUS 3: Simplified Memory-Bounded A* (SMA*)
 # =============================================================================
 def sma_star_search(
     env: DeepCoreEnv,
     heuristic: Callable[[DeepCoreState, DeepCoreEnv], float],
     memory_limit: Optional[int] = None,
 ) -> Optional[SearchMetrics]:
-    """TODO (Bonus): Implement Simplified Memory-Bounded A* (SMA*)."""
-    raise NotImplementedError
+    """SMA* tree search with forgotten-child backups and regeneration.
+
+    The cap counts resident search-tree nodes, including ancestors, not bytes.
+    A forgotten edge retains only its action and backed-up f, never its state.
+    The best open entry is deepest among equal f; the worst removable leaf is
+    shallowest among equal f. Nodes deeper than the cap can represent are
+    assigned infinity. With enough memory for an optimal path this is optimal;
+    a smaller cap can return a more expensive representable goal or fail.
+    With no cap, use the unbounded graph-search limit (A*) to avoid retaining
+    duplicate tree paths. Supply an integer for the actual bounded SMA* tree;
+    unlike the unbounded limit, it cannot retain a global closed set.
+    """
+    if memory_limit is None:
+        return _best_first(env, heuristic, "SMA* (unbounded)", "cost")
+    _check_budget(memory_limit, "memory_limit")
+    if memory_limit < 1:
+        raise ValueError("memory_limit must be at least 1")
+    metrics = SearchMetrics(algorithm_name="SMA*")
+    serial = count()
+
+    class Node:
+        __slots__ = ("state", "g", "f", "parent", "action", "depth", "order",
+                     "options", "children", "version")
+
+        def __init__(self, state, g, f, parent=None, action=None):
+            self.state, self.g, self.f = state, g, f
+            self.parent, self.action = parent, action
+            self.depth = parent.depth + 1 if parent is not None else 0
+            self.order = next(serial)
+            self.options = None
+            self.children = {}
+            self.version = 0
+
+    def checked_h(state):
+        h = float(heuristic(state, env))
+        if math.isnan(h) or h < 0:
+            raise ValueError("heuristic values must be non-negative and not NaN")
+        return h
+
+    def candidate_priority(node):
+        if node.options is None:
+            return node.f
+        return min((value for action, value in node.options.items()
+                    if action not in node.children), default=math.inf)
+
+    def publish(node):
+        node.version += 1
+        priority = candidate_priority(node)
+        if math.isfinite(priority):
+            open_ids.add(node.order)
+            heapq.heappush(best_heap, (priority, -node.depth, node.order, node.version))
+        else:
+            open_ids.discard(node.order)
+        if node.parent is not None and not node.children:
+            heapq.heappush(worst_heap, (-node.f, node.depth, -node.order, node.version))
+
+    def backup(node):
+        while node is not None:
+            if node.options is not None:
+                node.f = max(node.f, min(node.options.values(), default=math.inf))
+            publish(node)
+            if node.parent is not None:
+                node.parent.options[node.action] = node.f
+            node = node.parent
+
+    def on_path(node, state):
+        while node is not None:
+            if node.state == state:
+                return True
+            node = node.parent
+        return False
+
+    start = env.get_initial_state()
+    root = Node(start, 0, checked_h(start))
+    resident = {root.order: root}
+    best_heap, worst_heap, open_ids = [], [], set()
+    publish(root)
+    while True:
+        _record_memory(metrics, len(open_ids), len(resident))
+        if not open_ids:
+            return _failed(metrics, "No solution fits the resident-node memory limit.")
+        while best_heap:
+            _, _, order, version = heapq.heappop(best_heap)
+            node = resident.get(order)
+            if node is not None and node.version == version:
+                break
+        # Queue entries contain IDs, never states; compaction also bounds the
+        # auxiliary heap records even after many backup/regeneration operations.
+        if len(best_heap) > 4 * len(resident) + 64:
+            best_heap[:] = [(candidate_priority(n), -n.depth, n.order, n.version)
+                            for n in resident.values() if n.order in open_ids]
+            heapq.heapify(best_heap)
+        if len(worst_heap) > 4 * len(resident) + 64:
+            worst_heap[:] = [(-n.f, n.depth, -n.order, n.version)
+                             for n in resident.values() if n.parent is not None and not n.children]
+            heapq.heapify(worst_heap)
+        if env.is_goal(node.state):
+            actions = []
+            current = node
+            while current.parent is not None:
+                actions.append(current.action)
+                current = current.parent
+            metrics.solved = True
+            metrics.solution_actions = list(reversed(actions))
+            metrics.total_cost = node.g
+            metrics.status_message = "Solved within the resident-node memory limit."
+            return metrics
+        if node.options is None:
+            node.options = {}
+            if node.depth < memory_limit - 1:
+                _record_expansion(metrics, node.state)
+                # Only one temporary successor exists at a time; no child-state
+                # list is kept outside the bounded resident tree.
+                for action in env.get_legal_actions(node.state):
+                    child, step_cost = env.transition(node.state, action)
+                    metrics.nodes_generated += 1
+                    if not on_path(node, child):
+                        node.options[action.value] = max(node.f, node.g + step_cost + checked_h(child))
+            backup(node)
+            continue
+        action = min((act for act in node.options if act not in node.children),
+                     key=lambda act: node.options[act])
+        if len(resident) == memory_limit:
+            worst, skipped = None, []
+            while worst_heap:
+                entry = heapq.heappop(worst_heap)
+                leaf = resident.get(-entry[2])
+                if leaf is None or leaf.version != entry[3] or leaf.children:
+                    continue
+                if leaf is node:
+                    skipped.append(entry)
+                else:
+                    worst = leaf
+                    break
+            for entry in skipped:
+                heapq.heappush(worst_heap, entry)
+            if worst is None:
+                node.options = {}
+                node.f = math.inf
+                backup(node)
+                continue
+            worst.parent.options[worst.action] = worst.f
+            del worst.parent.children[worst.action]
+            del resident[worst.order]
+            open_ids.discard(worst.order)
+            backup(worst.parent)
+        child, cost = env.transition(node.state, action)
+        metrics.nodes_generated += 1  # Regeneration is real work, too.
+        new_node = Node(child, node.g + cost, max(node.f, node.options[action]), node, action)
+        node.children[action] = new_node
+        node.options[action] = new_node.f
+        resident[new_node.order] = new_node
+        publish(new_node)
+        backup(node)
